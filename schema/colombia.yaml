@@ -1,0 +1,312 @@
+mercancia:
+  const:
+    pais: "CO"   # constante para todas las filas
+
+  inputs:
+    ebs:
+      file_pattern: "CO_EBS_*.xlsx"
+      sheet: 0
+      encoding: "utf-8"
+    reim:
+      file_pattern: "CO_REIM_*.xlsx"
+      sheet: 0
+      encoding: "utf-8"
+    rsf:
+      file_pattern: "CO_RSF_*.xlsx"
+      sheet: 0
+      encoding: "utf-8"
+
+  # === Mapas de columnas (nombre en archivo -> estándar) ===
+  column_maps:
+    ebs:
+      "INVOICE ID": invoice_id
+      "PROVEEDOR": proveedor
+      "DOCUMENTO": factura
+      "ORDEN": orden_compra
+      "FECHA DOCUMENTO": fecha
+      "FECHA CREACION": fecha_creacion
+      "FECHA CREACIÓN": fecha_creacion
+      "FECHA DE CREACION": fecha_creacion
+      "FECHA DE CREACIÓN": fecha_creacion
+      "MONTO DOCUMENTO": monto_bruto
+      "DESCRIPCION": descripcion
+      "GRUPO DE PAGO": grupo_pago
+      "TERMINO PAGO": termino_pago
+      "FECHA A PAGAR": fecha_vencimiento
+      "DIVISA": moneda
+      "FECHA RECEPCION": fecha_recepcion
+      "MONTO ARTICULO": monto_articulo
+      "CUENTA ARTICULO": cuenta_articulo
+      "CC ARTICULO": centro_costo
+      "ESTATUS": estado
+      "PRIORIDAD": prioridad
+      "TIPO": tipo_documento
+      "MONTO A PAGAR": monto_neto
+
+    reim:
+      "Proveedor": proveedor
+      "Número Factura": factura
+      "Fecha Factura": fecha
+      "Centro de Costo": centro_costo
+      "Sucursal": tienda
+      "Tienda": tienda_nombre
+      "Orden Compra": orden_compra
+      "Tipo Documento": tipo_documento
+      "Estado": estado
+      "SubTotal": monto_bruto
+      "Valor Impuesto": impuesto
+      "Total con Impuesto": monto_neto   # neto a usar
+      "Unidades por Factura": cantidad
+      "Unidades Recibidas": unidades_recibidas
+      "Diferencias": diferencias_unidades
+      "Diferencia": diferencia_monto
+      "Costo Recepcion": costo_recepcion
+      "Factura Con Faltante": factura_con_faltante
+      "Término de Pago": termino_pago
+      "Fecha Vencimiento": fecha_vencimiento
+      "Indicador RTV": indicador_rtv
+      "OrdenRTV": orden_rtv
+      "Consignación": consignacion
+      "Origen Documento": origen_documento
+      "Razón REIM": razon_reim
+      "Fecha Recepción": fecha_recepcion
+      "Fecha Creación": fecha_creacion
+      "Fecha Creacion": fecha_creacion
+      "Fecha de Creación": fecha_creacion
+      "Fecha de Creacion": fecha_creacion
+      "Fecha Modificación": fecha_modificacion
+      "Fecha Aprobación": fecha_aprobacion
+      "Fecha Publicación": fecha_publicacion
+      "Creado Por": creado_por
+      "Modificado Por": modificado_por
+
+    rsf:
+      "Orden de Compra": orden_compra
+      "Código Proveedor": codigo_proveedor
+      "Sucursal Proveedor": sucursal_proveedor
+      "Proveedor": proveedor
+      "Cód. Tienda": tienda_codigo
+      "Tienda": tienda_nombre
+      "Estatus": estado_recepcion
+      "Días Condición (RMS)": dias_condicion_rms
+      "Unidades Recibidas": unidades_recibidas
+      "Documento": documento
+      "Recepción": monto_neto            # neto a usar
+      "Diferencia AP": diferencia_ap
+      "Saldo Herramienta": saldo_herramienta
+      "Fecha Recepción": fecha_recepcion
+      "Termino de Plazo": termino_plazo  # si existiera
+
+  # === (Opcional) formatos explícitos para 'fecha' (fecha de documento) ===
+  # Si se omiten, el pipeline parseará con lógica robusta al usar las fechas.
+  date_formats:
+    ebs: "%d/%m/%y"
+    # reim:   # no fijo; valores variados
+    # rsf:    # no fijo; valores variados
+
+  # === Normalización ligera (evitamos tocar 'proveedor') ===
+  text_normalize:
+    strip:
+      - grupo_pago
+      - termino_pago
+      - moneda
+      - estado
+      - tipo_documento
+      - centro_costo
+      - tienda
+      - tienda_nombre
+      - orden_compra
+      - documento
+      - sucursal_proveedor
+    upper:
+      - estado
+      - estado_recepcion
+      - tipo_documento
+      - moneda
+
+  # === Filtros por fuente ===
+  filters:
+    ebs:
+      - "monto_neto.notna()"
+      - "monto_neto != 0"
+    reim:
+      - "fecha_recepcion.notna()"
+    rsf:
+      - "monto_neto.notna()"
+      - "monto_neto != 0"
+      # Acepta 'RECEPCIÓN'/'RECEPCION' insensible a acento/upper
+      - "estado_recepcion.astype('string').str.upper().str.replace('Ó','O', regex=False) == 'RECEPCION SIN FACTURA'"
+
+  # === LOOKUPS ===
+  lookups:
+    # --- Prioridades por proveedor (Google Sheet publicado como CSV, Hoja 1) ---
+    prioridades:
+      enabled: true
+      source: google_sheet_csv
+      url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHq0kqpYpTG-SCYMRRAIXFmaVIi0oCwI6vMlcqaaiL4yDv_eX98vMaa9ocWjOAhlnguBRt4AkMpMIb/pub?output=csv&gid=0"
+      required_columns: ["Nombre Proveedor", "Prioridad De Pago"]
+      dedupe_key: ["Nombre Proveedor"]
+      duplicate_policy: "last_row"
+      match_policy:
+        apply_to_sources: ["REIM", "RSF"]   # EBS ya trae prioridad
+        on_column: "proveedor"
+        write_to: "prioridad"
+        overwrite_existing: false
+        trace_field: "prioridad_fuente"
+        trace_value: "MAESTRO_SHEET"
+        # default_priority: 25  # (opcional) si no hay match
+
+    # --- Factoring por prioridad (Google Sheet publicado como CSV, Hoja 2) ---
+    factoring:
+      enabled: true
+      source: google_sheet_csv
+      url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHq0kqpYpTG-SCYMRRAIXFmaVIi0oCwI6vMlcqaaiL4yDv_eX98vMaa9ocWjOAhlnguBRt4AkMpMIb/pub?output=csv&gid=1230197394"
+      required_columns: ["PRIORIDAD", "FACTORING"]
+      dedupe_key: ["PRIORIDAD"]
+      duplicate_policy: "last_row"
+      match_policy:
+        on_column: "prioridad"
+        write_to: "factoring"
+        overwrite_existing: true
+        trace_field: "factoring_fuente"
+        trace_value: "MAESTRO_SHEET_FACT"
+
+  # === Cálculos horizontales (se ejecutan en Pandas; 'to_dt' disponible) ===
+  post:
+    compute:
+      # 0) Monto preferido = neto (si existe) o bruto
+      - "df['monto'] = pd.to_numeric(df.get('monto_neto'), errors='coerce').fillna(pd.to_numeric(df.get('monto_bruto'), errors='coerce'))"
+
+      # 0.1) Eliminar filas con monto == 0 (tolerancia flotante)
+      - |
+        m = pd.to_numeric(df['monto'], errors='coerce').fillna(0)
+        idx_zero = m.abs().le(1e-9)
+        if idx_zero.any():
+          df.drop(index=df.index[idx_zero], inplace=True)
+          df.reset_index(drop=True, inplace=True)
+
+      # 1) RSF no trae factura/tipo -> vacíos (tipo luego se estandariza)
+      - "df.loc[df.get('APP','').eq('RSF'), ['factura','tipo_documento']] = [pd.NA, pd.NA]"
+
+      # 2) FECHA DE VENCIMIENTO REAL
+      #    REIM: extrae días de 'termino_pago'/'termino_plazo' (e.g. NETO A 30 DIAS, 2% A 30 DIAS DPP, 1.4/30 DPP)
+      #    RSF:  usa 'dias_condicion_rms' directamente
+      - |
+        mask_reim = df.get('APP','').eq('REIM')
+        mask_rsf  = df.get('APP','').eq('RSF')
+
+        # --- REIM ---
+        tp_all = df.get('termino_plazo', pd.Series(pd.NA, index=df.index, dtype='string')).astype('string')
+        pg_all = df.get('termino_pago',  pd.Series(pd.NA, index=df.index, dtype='string')).astype('string')
+        term_reim = tp_all.where(mask_reim).fillna(pg_all.where(mask_reim))
+
+        dias_reim = pd.to_numeric(term_reim.str.extract(r'(?i)(\d+)\s*d[ií]as?')[0], errors='coerce')
+        dias_reim = dias_reim.fillna(pd.to_numeric(term_reim.str.extract(r'/\s*(\d+)')[0], errors='coerce'))
+        dias_reim = dias_reim.fillna(pd.to_numeric(term_reim.str.findall(r'(\d+)').str[-1], errors='coerce'))
+
+        rec_reim = to_dt(df.loc[mask_reim, 'fecha_recepcion'])
+        valid_reim = dias_reim.notna() & rec_reim.notna()
+        df.loc[mask_reim & valid_reim, 'fecha_vencimiento'] = rec_reim[valid_reim] + pd.to_timedelta(dias_reim[valid_reim], unit='D')
+
+        # --- RSF ---
+        dias_rsf = pd.to_numeric(df.loc[mask_rsf, 'dias_condicion_rms'], errors='coerce')
+        rec_rsf  = to_dt(df.loc[mask_rsf, 'fecha_recepcion'])
+        valid_rsf = dias_rsf.notna() & rec_rsf.notna()
+        df.loc[mask_rsf & valid_rsf, 'fecha_vencimiento'] = rec_rsf[valid_rsf] + pd.to_timedelta(dias_rsf[valid_rsf], unit='D')
+
+      # 3) DIA DE PAGO (exec_mon lo pasa la app/CLI: lunes de ejecución)
+      #    Reglas:
+      #      - Vencidas o sin fecha -> viernes de esta semana
+      #      - Misma semana: prio 24/25 -> miércoles, resto -> viernes
+      #      - Si vence sábado/domingo de esta semana -> viernes de la próxima
+      #      - Semanas futuras -> viernes de esa semana
+      - |
+        # ===== DIA DE PAGO (Colombia) =====
+        due = pd.to_datetime(df['fecha_vencimiento'], errors='coerce')
+
+        # Lunes de ejecución (ya viene en el contexto)
+        exec_mon = exec_mon
+
+        # Semana del vencimiento (lunes)
+        due_mon = due.dt.floor('D') - pd.to_timedelta(due.dt.weekday, unit='D')
+
+        # Miércoles/Viernes de la semana de ejecución
+        wed_exec = exec_mon + pd.Timedelta(days=2)
+        fri_exec = exec_mon + pd.Timedelta(days=4)
+
+        # Viernes de la semana del vencimiento (para semanas FUTURAS)
+        fri_due = due_mon + pd.Timedelta(days=4)
+        # **Nuevo**: viernes de la semana SIGUIENTE a la del vencimiento
+        fri_due_next = due_mon + pd.Timedelta(days=11)
+
+        # **Nuevo**: viernes de la PRÓXIMA semana respecto a la ejecución (para finde actual)
+        next_fri = exec_mon + pd.Timedelta(days=11)
+
+        # Prioridad (24/25 -> miércoles en semana de ejecución)
+        pr = pd.to_numeric(df.get('prioridad'), errors='coerce')
+        is_24_25 = pr.isin([24, 25])
+
+        same_week = (due_mon == exec_mon)
+        future_week = (due_mon > exec_mon)
+        past_or_missing = (due_mon < exec_mon) | due_mon.isna()
+
+        pay = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns]")
+
+        # Vencidas o sin fecha -> viernes de esta semana
+        pay.loc[past_or_missing] = fri_exec
+
+        # Misma semana: 24/25 -> miércoles, resto -> viernes
+        pay.loc[same_week & is_24_25]  = wed_exec
+        pay.loc[same_week & ~is_24_25] = fri_exec
+
+        # **Mismo finde (sáb/dom) -> viernes de la próxima semana (no el de esta)**
+        due_wd = due.dt.weekday  # 5=sáb, 6=dom
+        weekend_curr = same_week & due_wd.isin([5, 6])
+        pay.loc[weekend_curr] = next_fri
+
+        # Semanas FUTURAS -> por defecto viernes de esa semana...
+        pay.loc[future_week] = fri_due.loc[future_week]
+        # ...**pero si el vencimiento cae en FIN DE SEMANA futuro (sáb/dom)**,
+        #     mover al **viernes de la semana SIGUIENTE**
+        weekend_future = future_week & due_wd.isin([5, 6])
+        pay.loc[weekend_future] = fri_due_next.loc[weekend_future]
+
+        df['dia_de_pago'] = pd.to_datetime(pay)
+      # 4) Estandarizar tipo_documento: vacío o "FACTURA" -> "STANDARD"
+      - |
+        td = df.get('tipo_documento').astype('string')
+        mask_empty_or_factura = td.isna() | (td.str.strip().str.len()==0) | td.str.strip().str.upper().eq('FACTURA')
+        df.loc[mask_empty_or_factura, 'tipo_documento'] = 'STANDARD'
+      
+      - |
+        # Factoring: si quedó vacío o nulo tras el lookup, poner "no mercancia"
+        fac = df.get('factoring').astype('string')
+        mask_blank = fac.isna() | (fac.str.strip().str.len() == 0)
+        df.loc[mask_blank, 'factoring'] = 'no mercancia'
+
+  # === Export: rótulos finales y orden exacto ===
+  export:
+    headers:
+      factura: "Numero de Factura"
+      orden_compra: "Orden de Compra"
+      proveedor: "Proveedor"
+      monto: "Monto"
+      fecha_creacion: "Fecha Creación"
+      fecha_vencimiento: "Fecha Vencimiento"
+      dia_de_pago: "Dia de pago"
+      prioridad: "Prioridad"
+      factoring: "Factoring"
+      tipo_documento: "Tipo Factura"
+      APP: "APP"
+    order:
+      - "APP"
+      - "Numero de Factura"
+      - "Orden de Compra"
+      - "Proveedor"
+      - "Monto"
+      - "Fecha Creación"
+      - "Fecha Vencimiento"
+      - "Dia de pago"
+      - "Prioridad"
+      - "Factoring"
+      - "Tipo Factura"

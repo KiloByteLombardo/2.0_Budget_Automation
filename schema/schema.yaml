@@ -1,0 +1,33 @@
+mercancia:
+  dtypes:
+    factura: string
+    orden_compra: string
+    proveedor: string
+    monto: float64
+    fecha_creacion: datetime64[ns]
+    fecha_vencimiento: datetime64[ns]
+    dia_de_pago: datetime64[ns]
+    prioridad: string          # CO la usa; VE queda vacía
+    tipo_documento: string
+    APP: string
+    # ---- NUEVAS (para VE; en CO pueden quedar vacías) ----
+    tipo_mercancia: string     # (lookup PPV/Directo en VE)
+    dia_de_pago_dow: string    # "MARTES"/"JUEVES" (VE)
+    en_alcance: boolean        # ventana VIE->JUE (VE)
+    factoring: string
+
+  order:
+    - APP
+    - factura
+    - orden_compra
+    - proveedor
+    - tipo_mercancia      # <- quedará vacía en CO si no se usa
+    - monto
+    - fecha_creacion
+    - fecha_vencimiento
+    - dia_de_pago
+    - dia_de_pago_dow     # <- solo VE
+    - prioridad           # <- útil en CO
+    - tipo_documento
+    - factoring
+    - en_alcance          # <- solo VE

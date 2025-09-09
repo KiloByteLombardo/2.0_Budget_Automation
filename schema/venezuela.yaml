@@ -1,0 +1,334 @@
+mercancia:
+  const:
+    pais: "VE"
+
+  inputs:
+    ebs:
+      file_pattern: "VE_EBS_*.xlsx"
+      sheet: 0
+      encoding: "utf-8"
+    reim:
+      file_pattern: "VE_REIM_*.xlsx"
+      sheet: 0
+      encoding: "utf-8"
+    rsf:
+      file_pattern: "VE_RSF_*.xlsx"
+      sheet: 0
+      encoding: "utf-8"
+
+  # === Mapas de columnas (nombre en archivo -> estándar para CONSOLIDADO) ===
+  column_maps:
+    ebs:
+      "INVOICE ID": invoice_id
+      "PROVEEDOR": proveedor
+      "DOCUMENTO": factura
+      "ORDEN": orden_compra
+      "FECHA DOCUMENTO": fecha
+      # Variantes de "Fecha Creación"
+      "FECHA CREACION": fecha_creacion
+      "FECHA CREACIÓN": fecha_creacion
+      "FECHA DE CREACION": fecha_creacion
+      "FECHA DE CREACIÓN": fecha_creacion
+      "MONTO DOCUMENTO": monto_bruto
+      "DESCRIPCION": descripcion
+      "GRUPO DE PAGO": grupo_pago
+      "TERMINO PAGO": termino_pago
+      "FECHA A PAGAR": fecha_vencimiento
+      "DIVISA": moneda
+      "FECHA RECEPCION": fecha_recepcion
+      "MONTO ARTICULO": monto_articulo
+      "CUENTA ARTICULO": cuenta_articulo
+      "CC ARTICULO": centro_costo
+      "ESTATUS": estado
+      "PRIORIDAD": prioridad
+      "TIPO": tipo_documento
+      "MONTO A PAGAR": monto_neto
+
+    reim:
+      "Proveedor": proveedor
+      "Número Factura": factura
+      "Numero Factura": factura
+      "Fecha Factura": fecha
+      "Centro de Costo": centro_costo
+      "Sucursal": tienda
+      "Tienda": tienda_nombre
+      "Orden Compra": orden_compra
+      "Tipo Documento": tipo_documento
+      "Estado": estado
+      "SubTotal": monto_bruto
+      "Valor Impuesto": impuesto
+      "Total con Impuesto": monto_neto
+      "Unidades por Factura": cantidad
+      "Unidades Recibidas": unidades_recibidas
+      "Diferencias": diferencias_unidades
+      "Diferencia": diferencia_monto
+      "Costo Recepcion": costo_recepcion
+      "Factura Con Faltante": factura_con_faltante
+      "Término de Pago": termino_pago
+      "Termino de Pago": termino_pago
+      "Fecha Vencimiento": fecha_vencimiento
+      "Indicador RTV": indicador_rtv
+      "OrdenRTV": orden_rtv
+      "Consignación": consignacion
+      "Origen Documento": origen_documento
+      "Razón REIM": razon_reim
+      "Fecha Recepción": fecha_recepcion
+      # Variantes de "Fecha Creación"
+      "Fecha Creación": fecha_creacion
+      "Fecha Creacion": fecha_creacion
+      "Fecha de Creación": fecha_creacion
+      "Fecha de Creacion": fecha_creacion
+      "Fecha Modificación": fecha_modificacion
+      "Fecha Aprobación": fecha_aprobacion
+      "Fecha Publicación": fecha_publicacion
+      "Creado Por": creado_por
+      "Modificado Por": modificado_por
+
+    rsf:
+      "Orden de Compra": orden_compra
+      "Código Proveedor": codigo_proveedor
+      "Codigo Proveedor": codigo_proveedor
+      "Sucursal Proveedor": sucursal_proveedor
+      "Proveedor": proveedor
+      "Cód. Tienda": tienda_codigo
+      "Cod. Tienda": tienda_codigo
+      "Tienda": tienda_nombre
+      "Estatus": estado_recepcion
+      "Días Condición (RMS)": dias_condicion_rms
+      "Dias Condicion (RMS)": dias_condicion_rms
+      "Unidades Recibidas": unidades_recibidas
+      "Documento": documento
+      "Recepción": monto_neto
+      "Recepcion": monto_neto
+      "Diferencia AP": diferencia_ap
+      "Saldo Herramienta": saldo_herramienta
+      "Fecha Recepción": fecha_recepcion
+      "Fecha Recepcion": fecha_recepcion
+      "Termino de Plazo": termino_plazo
+
+  # Formato explícito SOLO para 'fecha' de EBS (si aplica)
+  date_formats:
+    ebs: "%d/%m/%y"
+
+  # Normalización ligera (no tocamos 'proveedor' para no romper empates literales)
+  text_normalize:
+    strip:
+      - grupo_pago
+      - termino_pago
+      - moneda
+      - estado
+      - tipo_documento
+      - centro_costo
+      - tienda
+      - tienda_nombre
+      - orden_compra
+      - documento
+      - sucursal_proveedor
+    upper:
+      - estado
+      - estado_recepcion
+      - tipo_documento
+      - moneda
+
+  # === Filtros por fuente ===
+  filters:
+    ebs:
+      - "monto_neto.notna()"
+      - "monto_neto != 0"
+    reim: []
+    rsf:
+      - "monto_neto.notna()"
+      - "monto_neto != 0"
+      - "estado_recepcion.astype('string').str.upper().str.replace('Ó','O', regex=False) == 'RECEPCION SIN FACTURA'"
+
+  # === LOOKUPS ===
+  lookups:
+    # Sin prioridades/factoring en VE
+    prioridades:
+      enabled: false
+    factoring:
+      enabled: false
+
+lookups:
+  tipo_mercancia:
+    enabled: true
+    source: google_sheet_csv
+    # Hoja publicada como CSV con columnas: PROVEEDOR, TIPO
+    url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRGDrub1hEEvBDzqAKWDHvmpHJMXgvXWslZGXYAARbTEAjOm8OyAVe72ikRM9cpeOiFXokgRHptFJmx/pub?output=csv&gid=0"
+
+    # Validación / dedupe
+    required_columns: ["PROVEEDOR", "TIPO"]
+    dedupe_key: ["PROVEEDOR"]
+    duplicate_policy: "first_row"   # usa la PRIMERA coincidencia (como pediste)
+
+    # (Opcional) si también quieres escribir 'tipo' en el consolidado:
+    match_policy_consolidated:
+      enabled: false                # ponlo en true si quieres llenar 'tipo' en el consolidado
+      apply_to_sources: ["REIM", "RSF"]
+      on_column: "proveedor"
+      write_to: "tipo"
+      overwrite_existing: false
+      trace_field: "tipo_fuente"
+      trace_value: "MAESTRO_TIPO"
+
+  # === Cálculos horizontales (usa to_dt inyectado desde Python) ===
+  post:
+    compute:
+      # 0) Monto preferido = neto (si existe) o bruto
+      - "df['monto'] = pd.to_numeric(df.get('monto_neto'), errors='coerce').fillna(pd.to_numeric(df.get('monto_bruto'), errors='coerce'))"
+
+      # 0.1) Eliminar filas con monto == 0
+      - |
+        m = pd.to_numeric(df['monto'], errors='coerce').fillna(0)
+        idx_zero = m.abs().le(1e-9)
+        if idx_zero.any():
+          df.drop(index=df.index[idx_zero], inplace=True)
+          df.reset_index(drop=True, inplace=True)
+
+      # 1) RSF no trae factura/tipo -> vacíos (tipo luego se estandariza)
+      - "df.loc[df.get('APP','').eq('RSF'), ['factura','tipo_documento']] = [pd.NA, pd.NA]"
+
+      # 2) FECHA DE VENCIMIENTO REAL
+      - |
+        mask_reim = df.get('APP','').eq('REIM')
+        mask_rsf  = df.get('APP','').eq('RSF')
+
+        # --- REIM ---
+        tp_all = df.get('termino_plazo', pd.Series(pd.NA, index=df.index, dtype='string')).astype('string')
+        pg_all = df.get('termino_pago',  pd.Series(pd.NA, index=df.index, dtype='string')).astype('string')
+        term_reim = tp_all.where(mask_reim).fillna(pg_all.where(mask_reim))
+
+        # Días: "NETO A 30 DIAS", "2% A 30 DIAS DPP", "1.4/30 DPP", etc.
+        dias_reim = pd.to_numeric(term_reim.str.extract(r'(?i)(\d+)\s*d[ií]as?')[0], errors='coerce')
+        dias_reim = dias_reim.fillna(pd.to_numeric(term_reim.str.extract(r'/\s*(\d+)')[0], errors='coerce'))
+        dias_reim = dias_reim.fillna(pd.to_numeric(term_reim.str.findall(r'(\d+)').str[-1], errors='coerce'))
+
+        rec_reim = to_dt(df.loc[mask_reim, 'fecha_recepcion'])
+        valid_reim = dias_reim.notna() & rec_reim.notna()
+        df.loc[mask_reim & valid_reim, 'fecha_vencimiento'] = rec_reim[valid_reim] + pd.to_timedelta(dias_reim[valid_reim], unit='D')
+
+        # --- RSF ---
+        dias_rsf = pd.to_numeric(df.loc[mask_rsf, 'dias_condicion_rms'], errors='coerce')
+        rec_rsf  = to_dt(df.loc[mask_rsf, 'fecha_recepcion'])
+        valid_rsf = dias_rsf.notna() & rec_rsf.notna()
+        df.loc[mask_rsf & valid_rsf, 'fecha_vencimiento'] = rec_rsf[valid_rsf] + pd.to_timedelta(dias_rsf[valid_rsf], unit='D')
+
+      # 3) DIA DE PAGO (VE paga martes y jueves) + columna "MARTES"/"JUEVES"
+      - |
+        due = to_dt(df['fecha_vencimiento'])
+
+        # Semana de ejecución (lunes)
+        mon = exec_mon
+        tue_exec = mon + pd.Timedelta(days=1)   # martes
+        wed_exec = mon + pd.Timedelta(days=2)   # miércoles
+        thu_exec = mon + pd.Timedelta(days=3)   # jueves
+        fri_exec = mon + pd.Timedelta(days=4)   # viernes
+        sat_exec = mon + pd.Timedelta(days=5)   # sábado
+        sun_exec = mon + pd.Timedelta(days=6)   # domingo
+
+        # Semana anterior
+        fri_prev = mon - pd.Timedelta(days=3)
+        sat_prev = mon - pd.Timedelta(days=2)
+        sun_prev = mon - pd.Timedelta(days=1)
+
+        # Siguiente semana
+        mon_next = mon + pd.Timedelta(days=7)
+        tue_next = mon_next + pd.Timedelta(days=1)
+        thu_next = mon_next + pd.Timedelta(days=3)
+
+        # Semana del vencimiento (lunes)
+        due_mon = due.dt.floor('D') - pd.to_timedelta(due.dt.weekday, unit='D')
+
+        pay_date = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns]")
+        pay_text = pd.Series(pd.NA, index=df.index, dtype="string")
+
+        same_week     = (due_mon == mon)
+        future_week   = (due_mon > mon)
+        previous_week = (due_mon < mon)
+
+        # Mié/Jue de esta semana -> JUEVES
+        c_wed_thu = same_week & (due >= wed_exec) & (due <= thu_exec)
+        pay_date.loc[c_wed_thu] = thu_exec
+        pay_text.loc[c_wed_thu] = "JUEVES"
+
+        # Vie/fin de semana anterior O Lun/Mar de esta -> MARTES
+        c_prev_wkend = previous_week & (due >= fri_prev) & (due <= sun_prev)
+        c_mon_tue    = same_week & (due >= mon) & (due <= tue_exec)
+        c_rule2 = c_prev_wkend | c_mon_tue
+        pay_date.loc[c_rule2] = tue_exec
+        pay_text.loc[c_rule2] = "MARTES"
+
+        # Vie/Sáb/Dom de esta -> MARTES próxima
+        c_wkend_curr = same_week & (due >= fri_exec) & (due <= sun_exec)
+        pay_date.loc[c_wkend_curr] = tue_next
+        pay_text.loc[c_wkend_curr] = "MARTES"
+
+        # Semanas futuras: <= Martes -> MARTES; <= Jueves -> JUEVES; > Jueves -> MARTES de la siguiente
+        tue_due = due_mon + pd.Timedelta(days=1)
+        thu_due = due_mon + pd.Timedelta(days=3)
+        c_future_tue  = future_week & (due <= tue_due)
+        c_future_thu  = future_week & (due > tue_due) & (due <= thu_due)
+        c_future_wknd = future_week & (due > thu_due)
+        pay_date.loc[c_future_tue]  = tue_due
+        pay_text.loc[c_future_tue]  = "MARTES"
+        pay_date.loc[c_future_thu]  = thu_due
+        pay_text.loc[c_future_thu]  = "JUEVES"
+        pay_date.loc[c_future_wknd] = tue_due + pd.Timedelta(days=7)
+        pay_text.loc[c_future_wknd] = "MARTES"
+
+        # Pasadas o sin fecha (no consideradas arriba): al MARTES de la semana de ejecución
+        c_past_or_missing = previous_week & ~c_prev_wkend | due.isna()
+        pay_date.loc[c_past_or_missing] = tue_exec
+        pay_text.loc[c_past_or_missing] = "MARTES"
+
+        df['dia_de_pago'] = pd.to_datetime(pay_date)
+        df['dia_de_pago_dow'] = pay_text
+
+        # Ventana de alcance: VIE (semana anterior) -> JUE (semana en curso)
+        due = to_dt(df['fecha_vencimiento'])
+        thu_curr = exec_mon + pd.Timedelta(days=3)  # jueves de la semana de ejecución
+        df['en_alcance'] = due.notna() & (due <= thu_curr)
+
+      # 4) Estandarizar tipo_documento: vacío o "FACTURA" -> "STANDARD"
+      - |
+        td = df.get('tipo_documento').astype('string')
+        mask_empty_or_factura = td.isna() | (td.str.strip().str.len()==0) | td.str.strip().str.upper().eq('FACTURA')
+        df.loc[mask_empty_or_factura, 'tipo_documento'] = 'STANDARD'
+      
+
+
+  # === Export ===
+  export:
+    # Escribe CRUDO además del consolidado (lo implementas en Python)
+    write_sources_raw: true
+    sheets:
+      consolidated: "Consolidado"
+      ebs_raw: "EBS (Original)"
+      reim_raw: "REIM (Original)"
+      rsf_raw: "RSF (Original)"
+    headers:
+      factura: "Numero de Factura"
+      orden_compra: "Orden de Compra"
+      proveedor: "Proveedor"
+      monto: "Monto"
+      fecha_creacion: "Fecha Creación"
+      fecha_vencimiento: "Fecha Vencimiento"
+      dia_de_pago: "Dia de pago"
+      dia_de_pago_dow: "Dia de pago (M/J)"
+      tipo_mercancia: "TIPO"         # <- PPV / Directo
+      tipo_documento: "Tipo Factura"
+      APP: "APP"
+      en_alcance: "En Alcance (VIE->JUE)"
+    order:
+      - "APP"
+      - "Numero de Factura"
+      - "Orden de Compra"
+      - "Proveedor"
+      - "TIPO"                 # <- del lookup
+      - "Monto"
+      - "Fecha Creación"
+      - "Fecha Vencimiento"
+      - "Dia de pago"
+      - "Dia de pago (M/J)"
+      - "Tipo Factura"
+      - "En Alcance (VIE->JUE)"
