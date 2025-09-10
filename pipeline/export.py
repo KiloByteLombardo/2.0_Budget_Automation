@@ -32,7 +32,8 @@ def write_excel_with_raw(out_path: str,
 
     df_cons = apply_headers_and_order(consolidated_df, export_cfg)
 
-    write_raw = bool((export_cfg or {}).get("write_sources_raw", False)) and (raw_sources is not None)
+    # Escribe hojas RAW si está habilitado en YAML o si detectamos VE (__tipo_map presente)
+    write_raw = (bool((export_cfg or {}).get("write_sources_raw", False)) or ("__tipo_map" in (export_cfg or {}))) and (raw_sources is not None)
     enriched = enrich_raw_sources(raw_sources, exec_mon, tipo_map=tipo_map) if (write_raw and exec_mon is not None) else (raw_sources or {})
 
     used=set()

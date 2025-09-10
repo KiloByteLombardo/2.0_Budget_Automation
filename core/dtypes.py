@@ -110,12 +110,6 @@ def apply_filters(df: pd.DataFrame, expressions: List[str]) -> pd.DataFrame:
                 raise
     return df
 
-def apply_value_maps(df: pd.DataFrame, maps: Dict[str, Dict[str, str]]) -> pd.DataFrame:
-    for col, mapping in (maps or {}).items():
-        if col in df.columns:
-            df[col] = df[col].replace(mapping)
-    return df
-
 def to_dt(s: pd.Series) -> pd.Series:
     if s is None:
         return pd.Series(pd.NaT, index=[])

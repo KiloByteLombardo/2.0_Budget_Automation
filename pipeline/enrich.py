@@ -2,6 +2,12 @@ from __future__ import annotations
 import pandas as pd
 from core.dtypes import to_dt
 
+def _first_existing(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    for name in candidates:
+        if name in df.columns:
+            return name
+    return None
+
 def enrich_raw_sources(raws: dict[str, pd.DataFrame], exec_mon: pd.Timestamp, tipo_map: pd.Series | None = None) -> dict[str, pd.DataFrame]:
     """
     Agrega columnas solicitadas en hojas originales:
@@ -61,7 +67,17 @@ def enrich_raw_sources(raws: dict[str, pd.DataFrame], exec_mon: pd.Timestamp, ti
 
         elif key.upper() == "RSF":
             # Fecha Vencimiento Verdadero
+            # Normaliza nombres de columnas con/ sin acento
+            col_recv_fix = _first_existing(d, ["Fecha Recepción", "Fecha Recepcion"]) or None
+            col_days_fix = _first_existing(d, ["Días Condición (RMS)", "Dias Condicion (RMS)"]) or None
+            if col_recv_fix is not None:
+                col_recv = col_recv_fix
+            if col_days_fix is not None:
+                col_days = col_days_fix
             col_recv = "Fecha Recepción"; col_days = "Días Condición (RMS)"
+            col_recv_fix = _first_existing(d, ["Fecha Recepción", "Fecha Recepcion"]) or col_recv
+            col_days_fix = _first_existing(d, ["Días Condición (RMS)", "Dias Condicion (RMS)"]) or col_days
+            col_recv, col_days = col_recv_fix, col_days_fix
             if col_recv in d.columns and col_days in d.columns:
                 recv = to_dt(d[col_recv]); days = pd.to_numeric(d[col_days], errors="coerce")
                 d["Fecha Vencimiento Verdadero"] = recv + pd.to_timedelta(days, unit="D")
@@ -72,10 +88,10 @@ def enrich_raw_sources(raws: dict[str, pd.DataFrame], exec_mon: pd.Timestamp, ti
             d["Caja"] = _compute_caja(d["Fecha Vencimiento Verdadero"], exec_mon)
 
             # Grupo de pago usando tienda/sucursal proveedor + mini maestro
-            tienda_col = "Tienda" if "Tienda" in d.columns else None
+            tienda_col = _first_existing(d, ["Tienda"]) or None
             # en RSF la "sucursal" que suele venir es "Sucursal Proveedor"
-            suc_col    = "Sucursal Proveedor" if "Sucursal Proveedor" in d.columns else ("Sucursal" if "Sucursal" in d.columns else None)
-            prov_col   = "Proveedor" if "Proveedor" in d.columns else None
+            suc_col    = _first_existing(d, ["Sucursal Proveedor", "Sucursal"]) or None
+            prov_col   = _first_existing(d, ["Proveedor"]) or None
             if tienda_col and (suc_col or prov_col):
                 d["Grupo de Pago"] = grupo_pago_from_tienda_sucursal_o_proveedor(
                     d,
@@ -87,6 +103,16 @@ def enrich_raw_sources(raws: dict[str, pd.DataFrame], exec_mon: pd.Timestamp, ti
             else:
                 d["Grupo de Pago"] = "NO DEFINIDO"
 
+
+        # Corrección defensiva adicional: si es RSF y no se pudo calcular por encabezados, reintenta con variantes
+        if key.upper() == "RSF":
+            if "Fecha Vencimiento Verdadero" not in d.columns or d["Fecha Vencimiento Verdadero"].isna().all():
+                recv_col = _first_existing(d, ["Fecha Recepción", "Fecha Recepcion"]) or None
+                days_col = _first_existing(d, ["Días Condición (RMS)", "Dias Condicion (RMS)"]) or None
+                if recv_col and days_col and (recv_col in d.columns and days_col in d.columns):
+                    recv = to_dt(d[recv_col]); days = pd.to_numeric(d[days_col], errors="coerce")
+                    d["Fecha Vencimiento Verdadero"] = recv + pd.to_timedelta(days, unit="D")
+                    d["Caja"] = _compute_caja(d["Fecha Vencimiento Verdadero"], exec_mon)
 
         out[key] = d
 
