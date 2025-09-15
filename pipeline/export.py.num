@@ -1,0 +1,156 @@
+   1: from __future__ import annotations
+   2: import pandas as pd
+   3: from typing import Dict
+   4: from core.utils import sanitize_sheet_name
+   5: from .enrich import enrich_raw_sources
+   6: 
+   7: 
+   8: def apply_headers_and_order(df: pd.DataFrame, export_cfg: dict) -> pd.DataFrame:
+   9:     out = df.copy()
+  10:     headers_map = (export_cfg or {}).get("headers", {})
+  11:     order = (export_cfg or {}).get("order")
+  12:     if headers_map:
+  13:         out = out.rename(columns=headers_map)
+  14:     if order:
+  15:         keep = [c for c in order if c in out.columns]
+  16:         out = out[keep]
+  17:     return out
+  18: 
+  19: 
+  20: def write_excel_with_raw(
+  21:     out_path: str,
+  22:     consolidated_df: pd.DataFrame,
+  23:     export_cfg: dict,
+  24:     raw_sources: dict[str, pd.DataFrame] | None = None,
+  25:     exec_mon: pd.Timestamp | None = None,
+  26:     tipo_map: pd.Series | None = None,
+  27: ):
+  28:     sheets = (export_cfg or {}).get("sheets", {}) or {}
+  29:     s_cons = sheets.get("consolidated", "Consolidado")
+  30:     s_ebs = sheets.get("ebs_raw", "EBS (Original)")
+  31:     s_reim = sheets.get("reim_raw", "REIM (Original)")
+  32:     s_rsf = sheets.get("rsf_raw", "RSF (Original)")
+  33: 
+  34:     if (export_cfg or {}).get("filter_consolidated_by_en_alcance", False) and (
+  35:         "en_alcance" in consolidated_df.columns
+  36:     ):
+  37:         consolidated_df = consolidated_df.loc[consolidated_df["en_alcance"] == True].copy()
+  38: 
+  39:     df_cons = apply_headers_and_order(consolidated_df, export_cfg)
+  40: 
+  41:     write_raw = (
+  42:         (bool((export_cfg or {}).get("write_sources_raw", False)) or ("__tipo_map" in (export_cfg or {})))
+  43:         and (raw_sources is not None)
+  44:     )
+  45:     enriched = (
+  46:         enrich_raw_sources(raw_sources, exec_mon, tipo_map=tipo_map)
+  47:         if (write_raw and exec_mon is not None)
+  48:         else (raw_sources or {})
+  49:     )
+  50: 
+  51:     used: set[str] = set()
+  52: 
+  53:     def uniq(n: str) -> str:
+  54:         base = sanitize_sheet_name(n)
+  55:         name = base
+  56:         i = 1
+  57:         while name.upper() in used:
+  58:             suf = f"_{i}"
+  59:             name = sanitize_sheet_name(base[: 31 - len(suf)] + suf)
+  60:             i += 1
+  61:         used.add(name.upper())
+  62:         return name
+  63: 
+  64:     s_cons = uniq(s_cons)
+  65:     if write_raw:
+  66:         s_ebs = uniq(s_ebs)
+  67:         s_reim = uniq(s_reim)
+  68:         s_rsf = uniq(s_rsf)
+  69: 
+  70:     # Si vamos a insertar fórmulas/hoja AUX, usar XlsxWriter
+  71:     add_gp_formula = (export_cfg or {}).get("add_grupo_pago_formula_xl")
+  72:     if add_gp_formula is None:
+  73:         add_gp_formula = write_raw and ("__tipo_map" in (export_cfg or {}))
+  74:     engine = "xlsxwriter" if (write_raw and add_gp_formula) else "openpyxl"
+  75: 
+  76:     with pd.ExcelWriter(out_path, engine=engine) as xw:
+  77:         df_cons.to_excel(xw, index=False, sheet_name=s_cons)
+  78:         if write_raw:
+  79:             if "EBS" in enriched and enriched["EBS"] is not None:
+  80:                 enriched["EBS"].to_excel(xw, index=False, sheet_name=s_ebs)
+  81:             if "REIM" in enriched and enriched["REIM"] is not None:
+  82:                 enriched["REIM"].to_excel(xw, index=False, sheet_name=s_reim)
+  83:             if "RSF" in enriched and enriched["RSF"] is not None:
+  84:                 enriched["RSF"].to_excel(xw, index=False, sheet_name=s_rsf)
+  85: 
+  86:         if write_raw and add_gp_formula and engine == "xlsxwriter":
+  87:             # Crear hoja AUX a partir del mini-maestro si existe
+  88:             s_aux = uniq("AUX")
+  89:             try:
+  90:                 tm = (export_cfg or {}).get("__tipo_map")
+  91:                 if tm is not None and not getattr(tm, "empty", True):
+  92:                     aux_df = pd.DataFrame({"CLAVE": tm.index.astype("string"), "TIPO": tm.astype("string").values})
+  93:                     aux_df.to_excel(xw, index=False, sheet_name=s_aux)
+  94:             except Exception:
+  95:                 pass
+  96: 
+  97:             def col_to_letter(cidx: int) -> str:
+  98:                 s = ""
+  99:                 c = cidx
+ 100:                 while True:
+ 101:                     c, r = divmod(c, 26)
+ 102:                     s = chr(65 + r) + s
+ 103:                     if c == 0:
+ 104:                         break
+ 105:                     c -= 1
+ 106:                 return s
+ 107: 
+ 108:             def add_formula(sheet_name: str, df: pd.DataFrame):
+ 109:                 if df is None or df.empty:
+ 110:                     return
+ 111:                 ws = xw.sheets.get(sheet_name)
+ 112:                 if ws is None:
+ 113:                     return
+ 114:                 cols = list(df.columns)
+ 115:                 if "Tienda" not in cols:
+ 116:                     return
+ 117:                 suc_name = (
+ 118:                     "Sucursal Proveedor"
+ 119:                     if "Sucursal Proveedor" in cols
+ 120:                     else ("Sucursal" if "Sucursal" in cols else None)
+ 121:                 )
+ 122:                 if suc_name is None:
+ 123:                     return
+ 124:                 tienda_idx = cols.index("Tienda")
+ 125:                 suc_idx = cols.index(suc_name)
+ 126:                 prov_idx = cols.index("Proveedor") if "Proveedor" in cols else None
+ 127:                 nrows = len(df)
+ 128:                 gp_col_idx = len(cols)
+ 129:                 # Header
+ 130:                 ws.write(0, gp_col_idx, "Grupo de Pago (XL)")
+ 131:                 t_col = col_to_letter(tienda_idx)
+ 132:                 s_col = col_to_letter(suc_idx)
+ 133:                 aux_range = f"'{s_aux}'!$A:$B"
+ 134:                 for i in range(nrows):
+ 135:                     row = i + 2
+ 136:                     t_cell = f"${t_col}{row}"
+ 137:                     s_cell = f"${s_col}{row}"
+ 138:                     if prov_idx is not None:
+ 139:                         p_col = col_to_letter(prov_idx)
+ 140:                         p_cell = f"${p_col}{row}"
+ 141:                         vlookup = (
+ 142:                             f"SI.ERROR(BUSCARV({s_cell},{aux_range},2,FALSO);SI.ERROR(BUSCARV({p_cell},{aux_range},2,FALSO);\"NO DEFINIDO\"))"
+ 143:                         )
+ 144:                     else:
+ 145:                         vlookup = f"SI.ERROR(BUSCARV({s_cell},{aux_range},2,FALSO);\"NO DEFINIDO\")"
+ 146:                     # Fórmula final en ES
+ 147:                     formula = (
+ 148:                         f"=SI({t_cell}<>\"CENDIS\";\"DIRECTO\";"
+ 149:                         f"SI(O(DERECHA({s_cell};3)=\"PPV\";DERECHA({s_cell};4)=\"PPV1\";DERECHA({s_cell};4)=\"PPV2\";DERECHA({s_cell};4)=\"PPV3\");\"PPV RMS\";{vlookup}))"
+ 150:                     )
+ 151:                     ws.write_formula(i + 1, gp_col_idx, formula)
+ 152: 
+ 153:             if s_reim in xw.sheets:
+ 154:                 add_formula(s_reim, enriched.get("REIM"))
+ 155:             if s_rsf in xw.sheets:
+ 156:                 add_formula(s_rsf, enriched.get("RSF"))

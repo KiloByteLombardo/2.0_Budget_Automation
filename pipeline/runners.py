@@ -207,20 +207,6 @@ def run_mercancia(
                     base.loc[mask_rsf], tienda_col=tienda_col, sucursal_col=suc_col or "sucursal_proveedor", proveedor_col=prov_col, tipo_map=tipo_map
                 ).values
 
-        # Fallback VE estilo BUSCARV por Sucursal Proveedor cuando quedó 'NO DEFINIDO'
-        if (pais or "").upper() == "VE" and tipo_map is not None and not getattr(tipo_map, "empty", True):
-            gp = base.get("Grupo de Pago").astype("string") if "Grupo de Pago" in base.columns else pd.Series(pd.NA, index=base.index)
-            mask_nd = gp.fillna("").str.strip().str.upper().eq("NO DEFINIDO")
-            suc_col_norm = None
-            for cand in ["sucursal_proveedor", "sucursal", "Sucursal Proveedor", "Sucursal"]:
-                if cand in base.columns:
-                    suc_col_norm = cand
-                    break
-            if suc_col_norm:
-                suc_key = base[suc_col_norm].astype("string").str.replace("\u00A0", " ", regex=False).str.strip()
-                lk = suc_key.map(tipo_map)
-                base.loc[mask_nd & lk.notna(), "Grupo de Pago"] = lk[mask_nd & lk.notna()].astype("string").values
-
     # Forzar tipo_documento STANDARD para RSF (VE)
     if app_col:
         mask_rsf_all = base[app_col].astype("string").str.upper().eq("RSF")

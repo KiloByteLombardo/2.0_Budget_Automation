@@ -158,8 +158,8 @@ def grupo_pago_from_tienda_sucursal_o_proveedor(df: pd.DataFrame,
     if tienda is None:
         return pd.Series("NO DEFINIDO", index=df.index, dtype="string")
 
-    st_tienda = tienda.astype("string").str.replace("\u00A0", " ", regex=False).str.strip()
-    st_suc    = suc.astype("string").str.replace("\u00A0", " ", regex=False).str.strip() if suc is not None else pd.Series(pd.NA, index=df.index, dtype="string")
+    st_tienda = tienda.astype("string").str.strip()
+    st_suc    = suc.astype("string").str.strip() if suc is not None else pd.Series(pd.NA, index=df.index, dtype="string")
     st_prov   = prov.astype("string").str.replace("\u00A0"," ", regex=False).str.strip() if prov is not None else pd.Series(pd.NA, index=df.index, dtype="string")
 
     out = pd.Series("NO DEFINIDO", index=df.index, dtype="string")
