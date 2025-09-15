@@ -158,8 +158,8 @@ def grupo_pago_from_tienda_sucursal_o_proveedor(df: pd.DataFrame,
     if tienda is None:
         return pd.Series("NO DEFINIDO", index=df.index, dtype="string")
 
-    st_tienda = tienda.astype("string").str.strip()
-    st_suc    = suc.astype("string").str.strip() if suc is not None else pd.Series(pd.NA, index=df.index, dtype="string")
+    st_tienda = tienda.astype("string").str.replace("\u00A0", " ", regex=False).str.strip()
+    st_suc    = suc.astype("string").str.replace("\u00A0", " ", regex=False).str.strip() if suc is not None else pd.Series(pd.NA, index=df.index, dtype="string")
     st_prov   = prov.astype("string").str.replace("\u00A0"," ", regex=False).str.strip() if prov is not None else pd.Series(pd.NA, index=df.index, dtype="string")
 
     out = pd.Series("NO DEFINIDO", index=df.index, dtype="string")
@@ -168,9 +168,9 @@ def grupo_pago_from_tienda_sucursal_o_proveedor(df: pd.DataFrame,
     mask_directo = st_tienda.str.upper() != "CENDIS"
     out.loc[mask_directo] = "DIRECTO"
 
-    # 2) PPV RMS si sucursal termina con PPV*
+    # 2) PPV RMS si sucursal termina con PPV* (tolerante a espacios/guiones)
     suf = st_suc.str.upper().fillna("")
-    mask_ppv = suf.str.endswith("PPV") | suf.str.endswith("PPV1") | suf.str.endswith("PPV2") | suf.str.endswith("PPV3")
+    mask_ppv = suf.str.contains(r"PPV(?:\s*|-)?(?:[123])?$", regex=True)
     mask_cendis = ~mask_directo
     out.loc[mask_cendis & mask_ppv] = "PPV RMS"
 
