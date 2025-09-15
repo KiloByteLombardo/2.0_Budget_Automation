@@ -41,9 +41,11 @@ def write_excel_with_raw(
         (bool((export_cfg or {}).get("write_sources_raw", False)) or ("__tipo_map" in (export_cfg or {})))
         and (raw_sources is not None)
     )
+    # Enriquecer RAW solo si la configuración lo permite (VE sí; CO no)
+    enrich_flag = bool((export_cfg or {}).get("enrich_raw_sources", True))
     enriched = (
         enrich_raw_sources(raw_sources, exec_mon, tipo_map=tipo_map)
-        if (write_raw and exec_mon is not None)
+        if (write_raw and exec_mon is not None and enrich_flag)
         else (raw_sources or {})
     )
 
@@ -74,12 +76,27 @@ def write_excel_with_raw(
     with pd.ExcelWriter(out_path, engine=engine) as xw:
         df_cons.to_excel(xw, index=False, sheet_name=s_cons)
         if write_raw:
-            if "EBS" in enriched and enriched["EBS"] is not None:
-                enriched["EBS"].to_excel(xw, index=False, sheet_name=s_ebs)
-            if "REIM" in enriched and enriched["REIM"] is not None:
-                enriched["REIM"].to_excel(xw, index=False, sheet_name=s_reim)
-            if "RSF" in enriched and enriched["RSF"] is not None:
-                enriched["RSF"].to_excel(xw, index=False, sheet_name=s_rsf)
+            to_write = dict(enriched)
+            # Colombia: filtrar RSF a 'Recepción sin factura'
+            if (export_cfg or {}).get("__pais") == "CO" and to_write.get("RSF") is not None:
+                df = to_write["RSF"].copy()
+                col_est = None
+                for c in ["Estatus", "ESTATUS"]:
+                    if c in df.columns:
+                        col_est = c; break
+                if col_est:
+                    s = df[col_est].astype("string")
+                    # normalizar mínimamente tildes comunes
+                    for a, b in [("Ó","O"),("Á","A"),("É","E"),("Í","I"),("Ú","U"),("Ñ","N")]:
+                        s = s.str.replace(a, b, regex=False)
+                    mask = s.str.upper().eq("RECEPCION SIN FACTURA")
+                    to_write["RSF"] = df.loc[mask].copy()
+            if "EBS" in to_write and to_write["EBS"] is not None:
+                to_write["EBS"].to_excel(xw, index=False, sheet_name=s_ebs)
+            if "REIM" in to_write and to_write["REIM"] is not None:
+                to_write["REIM"].to_excel(xw, index=False, sheet_name=s_reim)
+            if "RSF" in to_write and to_write["RSF"] is not None:
+                to_write["RSF"].to_excel(xw, index=False, sheet_name=s_rsf)
 
         if write_raw and add_gp_formula and engine == "xlsxwriter":
             # Create AUX sheet from mini-master if present
@@ -147,4 +164,3 @@ def write_excel_with_raw(
                 add_formula(s_reim, enriched.get("REIM"))
             if s_rsf in xw.sheets:
                 add_formula(s_rsf, enriched.get("RSF"))
-

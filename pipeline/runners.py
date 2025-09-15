@@ -172,9 +172,12 @@ def run_mercancia(
                 if col_doc and col_fd:
                     doc_key = raw_ebs[col_doc].astype("string").str.replace("\u00A0"," ", regex=False).str.strip()
                     fd_src  = to_dt(raw_ebs[col_fd])
-                    mapping = pd.Series(fd_src.values, index=doc_key.values)
+                    # Dedupe por DOCUMENTO para evitar InvalidIndexError (usar la primera coincidencia)
+                    mapping_series = pd.Series(fd_src.values, index=doc_key.values)
+                    mapping_series = mapping_series[~mapping_series.index.duplicated(keep="first")]
+                    mapping_dict = mapping_series.to_dict()
                     target_docs = base.loc[mask_ebs_fd, "factura"].astype("string").str.replace("\u00A0"," ", regex=False).str.strip()
-                    mapped = target_docs.map(mapping)
+                    mapped = target_docs.map(mapping_dict)
                     need = mask_ebs_fd & (base["fecha_documento"].isna()) & mapped.notna()
                     base.loc[need, "fecha_documento"] = mapped.loc[need[need].index].values
 
@@ -219,6 +222,11 @@ def run_mercancia(
             pd.to_numeric(base.get("monto_bruto"), errors="coerce")
         )
 
+    # Filtro general del consolidado: excluir 0 <= monto <= 100
+    if "monto" in base.columns:
+        _m = pd.to_numeric(base["monto"], errors="coerce")
+        base = base[_m.isna() | (_m < 0) | (_m > 100)].copy()
+
     # Filtro consolidado VE: conservar solo Caja en valores permitidos (configurable por YAML)
     if (pais or "").upper() == "VE" and "Caja" in base.columns:
         cfg_export = (cfg.get("export") or country_all.get("export") or {})
@@ -232,6 +240,10 @@ def run_mercancia(
         gp_allowed = {s.upper() for s in (gp_allowed_conf or ["DIRECTO", "ALMACEN", "PPV RMS", "SUMINISTROS"]) }
         gp_norm = base["Grupo de Pago"].astype("string").str.upper()
         base = base[gp_norm.isin(gp_allowed)].copy()
+
+    # Para Colombia: no incluir columna calculada 'Grupo de Pago' en el consolidado
+    if (pais or "").upper() == "CO" and "Grupo de Pago" in base.columns:
+        base.drop(columns=["Grupo de Pago"], inplace=True)
 
     # Tipado y orden estándar por schema
     base = cast_dtypes(base, dtypes)
@@ -270,6 +282,13 @@ def run_mercancia(
             "Caja",
         ]
     export_cfg["__tipo_map"] = tipo_map
+    # Bandera de país para export y políticas de RAW
+    export_cfg["__pais"] = (pais or "").upper() if pais else None
+    if (pais or "").upper() == "CO":
+        # Colombia: escribir RAW sin enriquecer, y filtrar RSF a Recepción sin factura
+        export_cfg = dict(export_cfg)
+        export_cfg["write_sources_raw"] = True
+        export_cfg["enrich_raw_sources"] = False
     return out, raw_sources, export_cfg
 
 
